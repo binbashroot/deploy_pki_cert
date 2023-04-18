@@ -1,0 +1,33 @@
+---
+# defaults file for deploy_pki_cert
+email_address: MYEMAILADDRESS
+mystate: MYSTATE
+mylocation: MYCITY
+myorg: FAKEORG
+myou: FAKEOU
+
+my_ca_pem_file: foo-ca.pem
+
+pki_template_type: WebServer
+
+pki_ca_host: foo.pkiserver.com
+
+pki_ca_url: 'http://{{ pki_ca_host }}/certsrv'
+
+pki_ca_referer: '{{ pki_ca_url }}/certrqxt.asp'
+
+pki_ca_req_url: '{{ pki_ca_url }}/certfnsh.asp'
+
+header_content: >
+      -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+      -H 'Accept-Encoding: gzip, deflate'
+      -H 'Accept-Language: en-US,en;q=0.5'
+      -H 'Connection: keep-alive'
+      -H 'Host: {{ pki_ca_host }}'
+      -H 'Referer: https://{{ pki_ca_host }}/certsrv/certrqxt.asp'
+      -H 'User-Agent: Mozilla/5.0 (Windows NT 6.3; WOW64; Trident/7.0; rv:11.0) like Gecko'
+      -H 'Content-Type: application/x-www-form-urlencoded'
+
+data1_string: 'Mode=newreq&CertRequest='
+
+data2_string: '&CertAttrib=CertificateTemplate:{{ pki_template_typ }}&TargetStoreFlags=0&SaveCert=yes&ThumbPrint='

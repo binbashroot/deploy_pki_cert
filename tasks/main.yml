@@ -1,0 +1,153 @@
+---
+# tasks file for deploy_pki_cert
+- name: Create temporary build directory
+  tempfile:
+    state: directory
+  register: tempfile
+  delegate_to: localhost
+
+- name: Generate a configuration file which is used to generate a csr and key
+  template:
+    src: openssl.j2
+    dest: "{{ item.path }}/openssl.conf"
+    mode: 0644
+  delegate_to: localhost
+  loop: 
+    - "{{ tempfile }}"
+  register: config_stat
+  tags:
+    - cert
+
+- name: Generate a private key and CSR
+  shell: 'openssl req -new -newkey rsa:4096 -days 1095 -sha256 -nodes -out {{ item.item.path }}/{{ inventory_hostname }}.csr -keyout {{ item.item.path }}/{{ inventory_hostname }}.key -config {{ item.dest }}'
+  args:
+    chdir: /tmp
+    warn: no
+  register: gencsr
+  delegate_to: localhost
+  loop: "{{ config_stat.results }}"
+  when: config_stat.changed
+  tags:
+    - cert
+
+- name: Slurp the CSR file contents
+  slurp:
+    src: "{{ item.item.path }}/{{ inventory_hostname }}.csr"
+  register: csr_content
+  loop: "{{ config_stat.results }}"
+  delegate_to: localhost
+  when: gencsr is changed
+  tags:
+    - cert
+
+- name: Request the certificate from the PKI Server  
+  shell: curl -s -k -u "{{ ad_user}}:{{ ad_pass }}" --ntlm {{ header_content|regex_replace('\n') }} {{ pki_ca_req_url }} --data "{{ data1_string }}{{ item.content| b64decode | regex_replace('\n') | regex_replace('([+])','%2B') | regex_replace(' ','+') }}{{ data2_string }}" | grep 'certnew.cer?ReqID' |grep location
+  no_log: True
+  args:
+    warn: false
+  register: mycert_request
+  loop: "{{ csr_content.results }}"
+  delegate_to: localhost
+  when: csr_content is succeeded
+  tags:
+    - cert
+
+- name: Download the certificate from the PKI server
+  shell: "curl -s -k -u {{ ad_user }}:{{ ad_pass }} --ntlm {{ header_content|regex_replace('\n') }} -o {{ item.item.item.item.path }}/{{ inventory_hostname }}.crt {{ pki_ca_url }}/{{ item.stdout.split('\"')[1][:-1] }}"
+  args:
+    warn: no
+  no_log: True
+  loop: "{{ mycert_request.results }}"
+  register: mycert_download
+  delegate_to: tpaprdcolans01
+  when: csr_content is succeeded
+  tags:
+    - cert
+
+- name: Upload signed crt file to /etc/pki/tls/certs
+  copy:
+    src: "{{ item.item.path }}/{{ inventory_hostname }}.crt"
+    dest: "/etc/pki/tls/certs/{{ inventory_hostname }}.crt"
+    owner: root
+    group: root
+    mode: 0644
+    backup: yes 
+  become: True
+  register: pki_stat
+  loop: "{{ config_stat.results }}"
+  tags:
+    - verify
+    - cert
+
+- name: Upload private key to /etc/pki/tls/private/
+  become: True
+  copy:
+    src: "{{ item.item.path }}/{{ inventory_hostname }}.key"
+    dest: "/etc/pki/tls/private/{{ inventory_hostname }}.key"
+    owner: root
+    group: root
+    mode: 0644
+    backup: yes 
+  register: pki_stat
+  loop: "{{ config_stat.results }}"
+  tags:
+    - verify
+    - cert
+
+- name: Copy csr file to /etc/pki/tls/misc 
+  copy:
+    src: "{{ item.item.path }}/{{ inventory_hostname }}.csr"
+    dest: "/etc/pki/tls/misc/{{ inventory_hostname }}.csr"
+    owner: root
+    group: root
+    mode: 0644
+    backup: yes 
+  become: True
+  register: pki_stat
+  loop: "{{ config_stat.results }}"
+  tags:
+    - verify
+    - cert
+
+- name: Run cert validation script to ensure crt matches the key
+  become: True
+  script: validate_cert.sh
+  register: validation
+  tags:
+    - validate
+  
+- name: Ensure CA cert is installed
+  become: True
+  stat:
+    path: "/etc/pki/ca-trust/source/anchors/{{ my_ca_pem_file }}"
+  register: ca_stat
+  tags:
+    - pfx
+
+- name: Add CA cert if it is missing
+  become: True
+  copy:
+    src: "{{ my_ca_pem_file }}"
+    dest: "/etc/pki/ca-trust/source/anchors/{{ my_ca_pem_file }}"
+    owner: root
+    group: root
+    mode: 0644
+  register: copy_stat
+  when: not ca_stat.stat.exists
+  tags:
+    - pfx
+
+- command: update-ca-trust extract
+  become: True
+  when: not ca_stat.stat.exists and
+        copy_stat.changed
+  tags:
+    - pfx
+
+- name: Generate a PFX file for java related programs just in case someone requires it 
+  become: True
+  shell: 'openssl pkcs12 -export -out /etc/pki/tls/certs/{{ inventory_hostname }}.p12 -inkey /etc/pki/tls/private/{{ inventory_hostname }}.key -in /etc/pki/tls/certs/{{ inventory_hostname }}.crt -certfile /etc/pki/ca-trust/source/anchors/{{ my_ca_pem_file }} -password pass:changeit'
+  when: ca_stat.stat.exists
+  tags:
+    - pfx
+
