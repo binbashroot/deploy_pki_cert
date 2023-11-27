@@ -25,7 +25,7 @@ header_content: >-
   -H 'User-Agent: Mozilla/5.0 (Windows NT 6.3; WOW64; Trident/7.0; rv:11.0) like Gecko'
   -H 'Content-Type: application/x-www-form-urlencoded'
   -H 'Referer: https://{{ pki_ca_host }}/certsrv/certrqxt.asp'
-
+  -H 'WWWW-Authenicate: Negotiate'
 data1_string: 'Mode=newreq&CertRequest='
 
 data2_string: '&CertAttrib=CertificateTemplate:{{ pki_template_type }}&TargetStoreFlags=0&SaveCert=yes&ThumbPrint='

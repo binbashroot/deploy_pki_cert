@@ -56,6 +56,7 @@
         --ntlm {{ header_content|regex_replace('\n') }} {{ pki_ca_req_url }} \
         --data-raw "{{ pki_request_data }}" | grep certnew.cer | grep location
       changed_when: false
+      failed_when: mycert_request['stdout_lines'] | length == 0
       register: mycert_request
       when: csr_content is succeeded
 
@@ -116,11 +117,11 @@
 
 - name: Generate a PFX file for java related programs just in case someone requires it
   ansible.builtin.shell: |
-    openssl pkcs12 -export -out /etc/pki/tls/certs/{{ inventory_hostname }}.p12 \
-    -inkey /etc/pki/tls/private/{{ inventory_hostname }}.key \
-    -in /etc/pki/tls/certs/{{ inventory_hostname }}.crt \
-    -certfile /etc/pki/ca-trust/source/anchors/{{ my_ca_pem_file }} \
-    -password pass:{{ pfx_password | default('changeit12!')}}'
+    openssl pkcs12 -export -out /etc/pki/tls/certs/{{ ansible_fqdn }}.p12 \
+    -inkey /etc/pki/tls/private/{{ ansible_fqdn }}.key \
+    -in /etc/pki/tls/certs/{{ ansible_fqdn }}.crt \
+    -certfile /etc/pki/ca-trust/source/anchors/{{ pki_ca_host }}.pem \
+    -password pass:{{ pfx_password | default('ngagyds!')}}
   become: True
 
 ...
