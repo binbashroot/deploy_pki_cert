@@ -16,7 +16,7 @@
         mode: "0644"
       register: config_stat
 
-    - name: Sub block
+    - name: Sub localhost block
       when: config_stat is succeeded
       block:
 
@@ -40,7 +40,7 @@
                                 regex_replace(' ','+') }}{{ data2_string }}" 
       rescue:
 
-        - name: Clean  up the temp folders
+        - name: Clean up the temp folders
           ansible.builtin.file:
             path: "{{ tempfile['path'] }}"
             state: absent
@@ -99,7 +99,7 @@
   ansible.builtin.shell: |
     curl -s -k -u {{ ad_user }}:{{ ad_pass }} --ntlm {{ header_content|regex_replace('\n') }} \
     -o /etc/pki/ca-trust/source/anchors/{{ pki_ca_host }}.pem \
-    https://{{ pki_ca_host }}/certsrv/certnew.cer?ReqID=CACert&Renewal=0&Enc=bin;
+    https://{{ pki_ca_host }}/certsrv/certnew.cer?ReqID=CACert&Renewal=0&Enc=b64;
     update-ca-trust;
   become: true
   register: mycert_download
@@ -109,10 +109,19 @@
   script: validate_cert.sh
   register: validation
 
-# name: Generate a PFX file for java related programs just in case someone requires it 
-# become: True
-# shell: 'openssl pkcs12 -export -out /etc/pki/tls/certs/{{ inventory_hostname }}.p12 -inkey /etc/pki/tls/private/{{ inventory_hostname }}.key -in /etc/pki/tls/certs/{{ inventory_hostname }}.crt -certfile /etc/pki/ca-trust/source/anchors/{{ my_ca_pem_file }} -password pass:changeit'
-# when: ca_stat.stat.exists
-# tags:
-#   - pfx
+- name: Clean  up the temp folders
+  ansible.builtin.file:
+    path: "{{ tempfile['path'] }}"
+    state: absent
+
+- name: Generate a PFX file for java related programs just in case someone requires it
+  ansible.builtin.shell: |
+    openssl pkcs12 -export -out /etc/pki/tls/certs/{{ inventory_hostname }}.p12 \
+    -inkey /etc/pki/tls/private/{{ inventory_hostname }}.key \
+    -in /etc/pki/tls/certs/{{ inventory_hostname }}.crt \
+    -certfile /etc/pki/ca-trust/source/anchors/{{ my_ca_pem_file }} \
+    -password pass:{{ pfx_password | default('changeit12!')}}'
+  become: True
+
+...
 
