@@ -1,12 +1,8 @@
 ---
-- hosts: foo
+- hosts: all
   gather_facts: True
-  vars_prompt:
-      - name: ad_user
-        prompt: "What is your AD login?"
-        private: no
-      - name: ad_pass
-        prompt: "What is your AD password?"
-        private: yes
+  vars:
+    ad_user: bigbob
+    ad_pass: 'changeme123.'
   roles:
     - deploy_pki_cert

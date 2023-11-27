@@ -6,19 +6,20 @@ req_extensions = req_ext
 distinguished_name = dn
 
 [ dn ]
-C=US
-ST={{ mystate }}
-L={{ mylocation }}
-O={{ myorg }}
-OU={{ myou }}
-emailAddress={{ email_address }}
+C = US
+ST = {{ mystate }}
+L = {{ mylocation }}
+O = {{ myorg }}
+OU = {{ myou }}
+emailAddress = {{ email_address }}
 CN = {{ inventory_hostname }}
 
 [ req_ext ]
 subjectAltName = @alt_names
 
 [ alt_names ]
-DNS.1 = {{ inventory_hostname }}
-{% if pki_san is defined %}
-DNS.2 = {{ pki_san }}.{{ ansible_domain }}
+{% if 'example' in inventory_hostname %}
+DNS.1 = {{ ansible_fqdn | regex_replace('example','cms4u2eat') }}
+{% elif 'cms4u2eat' in inventory_hostname %}
+DNS.1 = {{ ansible_fqdn | regex_replace('cms4u2eat','example') }}
 {% endif %}
