@@ -1,4 +1,5 @@
 ---
+
 - hosts: all
   gather_facts: True
   vars:
@@ -6,3 +7,6 @@
     ad_pass: 'changeme123.'
   roles:
     - deploy_pki_cert
+
+...
+
