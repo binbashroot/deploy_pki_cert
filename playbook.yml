@@ -1,12 +1,12 @@
 ---
 
-- hosts: all
-  gather_facts: True
+- name: Install a pki cert on the host
+  hosts: all
+  gather_facts: true
   vars:
     ad_user: bigbob
-    ad_pass: 'changeme123.'
+    ad_pass: "{{ lookup('env','BIG_BOB_PASSWORD') }}"
   roles:
     - deploy_pki_cert
 
 ...
-

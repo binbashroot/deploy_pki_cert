@@ -1,5 +1,10 @@
 ---
 # tasks file for deploy_pki_cert
+- name: Get facts in case the base ones are undefined
+  ansible.builtin.setup:
+    gather_subset: all
+  when: ansible_fqdn is undefined 
+
 - name: Localhost block
   delegate_to: localhost
   block:
@@ -26,6 +31,7 @@
             -out {{ tempfile['path'] }}/{{ inventory_hostname }}.csr \
             -keyout {{ tempfile['path'] }}/{{ inventory_hostname }}.key \
             -config {{ config_stat['dest'] }}
+          changed_when: false
 
         - name: Slurp the CSR file contents
           ansible.builtin.slurp:
@@ -35,9 +41,9 @@
         - name: Set a shortened string variable for future task
           ansible.builtin.set_fact:
             pki_request_data: "{{ data1_string }}\
-                              {{ csr_content['content'] | b64decode | 
-                                regex_replace('\n') | regex_replace('([+])','%2B') | 
-                                regex_replace(' ','+') }}{{ data2_string }}" 
+                              {{ csr_content['content'] | b64decode |
+                                 regex_replace('\n') | regex_replace('([+])', '%2B') |
+                                 regex_replace(' ', '+') }}{{ data2_string }}"
       rescue:
 
         - name: Clean up the temp folders
@@ -52,8 +58,8 @@
     - name: Request the certificate from the PKI Server
       ansible.builtin.shell: |
         set -o pipefail;
-        curl -s -k -u "{{ ad_user}}:{{ ad_pass }}" \
-        --ntlm {{ header_content|regex_replace('\n') }} {{ pki_ca_req_url }} \
+        curl -s -k -u "{{ ad_user }}:{{ ad_pass }}" \
+        --ntlm {{ header_content | regex_replace('\n') }} {{ pki_ca_req_url }} \
         --data-raw "{{ pki_request_data }}" | grep certnew.cer | grep location
       changed_when: false
       failed_when: mycert_request['stdout_lines'] | length == 0
@@ -62,19 +68,19 @@
 
   rescue:
 
-        - name: Clean  up the temp folders
-          ansible.builtin.file:
-            path: "{{ tempfile['path'] }}"
-            state: absent
+    - name: Clean  up the temp folders
+      ansible.builtin.file:
+        path: "{{ tempfile['path'] }}"
+        state: absent
 
-        - name: Fail
-          ansible.builtin.fail:
-            msg: "Failed download of certificate"
+    - name: Fail
+      ansible.builtin.fail:
+        msg: "Failed download of certificate"
 
 - name: Download the certificate from the PKI server
   ansible.builtin.shell: |
     curl -k -u {{ ad_user }}:{{ ad_pass }} \
-    --ntlm {{ header_content|regex_replace('\n') }} \
+    --ntlm {{ header_content | regex_replace('\n') }} \
     -o /etc/pki/tls/certs/{{ ansible_fqdn }}.crt \
     {{ pki_ca_url }}/{{ (mycert_request['stdout_lines'][0]).split('"')[1][:-1] }}
   become: true
@@ -82,15 +88,15 @@
   when: csr_content is succeeded
 
 - name: Upload csr and private key files to host
-  copy:
+  ansible.builtin.copy:
     src: "{{ item['name'] }}"
     dest: "{{ item['upload_path'] }}"
     owner: root
     group: root
     mode: 0644
-  become: True
+  become: true
   register: pki_stat
-  loop: 
+  loop:
     - name: "{{ tempfile['path'] }}/{{ inventory_hostname }}.key"
       upload_path: "/etc/pki/tls/private/{{ inventory_hostname }}.key"
     - name: "{{ tempfile['path'] }}/{{ inventory_hostname }}.csr"
@@ -106,7 +112,7 @@
   register: mycert_download
 
 - name: Run cert validation script to ensure crt matches the key
-  become: True
+  become: true
   script: validate_cert.sh
   register: validation
 
@@ -114,15 +120,14 @@
   ansible.builtin.file:
     path: "{{ tempfile['path'] }}"
     state: absent
-
+  
 - name: Generate a PFX file for java related programs just in case someone requires it
   ansible.builtin.shell: |
     openssl pkcs12 -export -out /etc/pki/tls/certs/{{ ansible_fqdn }}.p12 \
     -inkey /etc/pki/tls/private/{{ ansible_fqdn }}.key \
     -in /etc/pki/tls/certs/{{ ansible_fqdn }}.crt \
     -certfile /etc/pki/ca-trust/source/anchors/{{ pki_ca_host }}.pem \
-    -password pass:{{ pfx_password | default('ngagyds!')}}
-  become: True
+    -password pass:{{ pfx_password | default('ngagyds')}}
+  become: true
 
 ...
-

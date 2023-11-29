@@ -18,8 +18,9 @@ CN = {{ inventory_hostname }}
 subjectAltName = @alt_names
 
 [ alt_names ]
+DNS.1 = {{ inventory_hostname }}
 {% if 'example' in inventory_hostname %}
-DNS.1 = {{ ansible_fqdn | regex_replace('example','cms4u2eat') }}
+DNS.2 = {{ ansible_fqdn | regex_replace('example','cms4u2eat') }}
 {% elif 'cms4u2eat' in inventory_hostname %}
-DNS.1 = {{ ansible_fqdn | regex_replace('cms4u2eat','example') }}
+DNS.2 = {{ ansible_fqdn | regex_replace('cms4u2eat','example') }}
 {% endif %}
