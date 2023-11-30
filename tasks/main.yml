@@ -1,5 +1,12 @@
 ---
 # tasks file for deploy_pki_cert
+
+- name: Assert that key vars are defined
+  ansible.builtin.assert:
+    that: 
+      - ad_username is defined
+      - ad_password is defined
+
 - name: Get facts in case the base ones are undefined
   ansible.builtin.setup:
     gather_subset: all
@@ -13,30 +20,35 @@
       ansible.builtin.tempfile:
         state: directory
       register: tempfile
-
-    - name: Generate a configuration file which is used to generate a csr and key
-      ansible.builtin.template:
-        src: openssl.j2
-        dest: "{{ tempfile['path'] }}/openssl.conf"
-        mode: "0644"
-      register: config_stat
+      run_once: true
 
     - name: Sub localhost block
       when: config_stat is succeeded
       block:
+ 
+        - name: Create a private key for CSR generation
+          community.crypto.openssl_privatekey:
+            path: "{{ tempfile['path'] }}/{{ inventory_hostname }}.key"
 
-        - name: Generate a private key and CSR
-          ansible.builtin.shell: |
-            openssl req -new -newkey rsa:4096 -days 365 -sha256 -nodes \
-            -out {{ tempfile['path'] }}/{{ inventory_hostname }}.csr \
-            -keyout {{ tempfile['path'] }}/{{ inventory_hostname }}.key \
-            -config {{ config_stat['dest'] }}
-          changed_when: false
-
-        - name: Slurp the CSR file contents
-          ansible.builtin.slurp:
-            src: "{{ tempfile['path'] }}/{{ inventory_hostname }}.csr"
-          register: csr_content
+        - name: Generate CSR using openssl_csr module
+          community.crypto.openssl_csr:
+            path: "{{ tempfile['path'] }}/{{ inventory_hostname }}.csr"
+            privatekey_path: "{{ tempfile['path'] }}/{{ inventory_hostname }}.key"
+            country_name: US
+            email_address: "{{ email_address }}"
+            organization_name: "{{ myorg }}"
+            organizational_unit_name: "{{ myou }}"
+            common_name: "{{ inventory_hostname }}"
+            state_or_province_name: "{{ mystate }}"
+            locality_name: "{{ mylocation }}"
+            subject_alt_name: |
+              DNS:{{ inventory_hostname }}
+              {%- if san_names is defined -%},
+              {%- for san in san_names -%}DNS:{{ san }}
+              {%- if not loop.last -%},{% endif -%}
+              {% endfor -%}
+              {% endif %}
+          register: config_stat
 
         - name: Set a shortened string variable for future task
           ansible.builtin.set_fact:
@@ -58,13 +70,33 @@
     - name: Request the certificate from the PKI Server
       ansible.builtin.shell: |
         set -o pipefail;
-        curl -s -k -u "{{ ad_user }}:{{ ad_pass }}" \
+        curl -s -k -u "{{ ad_username }}:{{ ad_password }}" \
         --ntlm {{ header_content | regex_replace('\n') }} {{ pki_ca_req_url }} \
         --data-raw "{{ pki_request_data }}" | grep certnew.cer | grep location
       changed_when: false
       failed_when: mycert_request['stdout_lines'] | length == 0
       register: mycert_request
       when: csr_content is succeeded
+
+    - name: Download the certificate from the PKI server
+      ansible.builtin.shell: |
+        curl -k -u {{ ad_username }}:{{ ad_password }} \
+        --ntlm {{ header_content | regex_replace('\n') }} \
+        -o "{{ tempfile['path'] }}/{{ inventory_hostname }}.crt"
+        {{ pki_ca_url }}/{{ (mycert_request['stdout_lines'][0]).split('"')[1][:-1] }}
+      become: true
+      register: mycert_download
+      when: csr_content is succeeded
+
+    - name: Generate a PKCS#12 file
+      community.crypto.openssl_pkcs12:
+        action: export
+        path: "{{ tempfile['path'] }}/{{ inventory_hostname }}.p12"
+        privatekey_path: "{{ tempfile['path'] }}/{{ inventory_hostname }}.key"
+        certificate_path: "{{ tempfile['path'] }}/{{ inventory_hostname }}.crt"
+        friendly_name: "{{ (inventory_hostname).split('.')[0] }}"
+        state: present
+      when: mycert_download is succeeded
 
   rescue:
 
@@ -77,57 +109,62 @@
       ansible.builtin.fail:
         msg: "Failed download of certificate"
 
-- name: Download the certificate from the PKI server
-  ansible.builtin.shell: |
-    curl -k -u {{ ad_user }}:{{ ad_pass }} \
-    --ntlm {{ header_content | regex_replace('\n') }} \
-    -o /etc/pki/tls/certs/{{ ansible_fqdn }}.crt \
-    {{ pki_ca_url }}/{{ (mycert_request['stdout_lines'][0]).split('"')[1][:-1] }}
-  become: true
-  register: mycert_download
-  when: csr_content is succeeded
+  always:
 
-- name: Upload csr and private key files to host
-  ansible.builtin.copy:
-    src: "{{ item['name'] }}"
-    dest: "{{ item['upload_path'] }}"
-    owner: root
-    group: root
-    mode: 0644
-  become: true
-  register: pki_stat
-  loop:
-    - name: "{{ tempfile['path'] }}/{{ inventory_hostname }}.key"
-      upload_path: "/etc/pki/tls/private/{{ inventory_hostname }}.key"
-    - name: "{{ tempfile['path'] }}/{{ inventory_hostname }}.csr"
-      upload_path: "/etc/pki/tls/misc/{{ inventory_hostname }}.csr"
+    - name: Location message block
+      when: 
+        - cert_download_only is defined
+        - cert_download_only | bool
+      block:
 
-- name: Grab the CA certificate and update the ca-trust
-  ansible.builtin.shell: |
-    curl -s -k -u {{ ad_user }}:{{ ad_pass }} --ntlm {{ header_content|regex_replace('\n') }} \
-    -o /etc/pki/ca-trust/source/anchors/{{ pki_ca_host }}.pem \
-    https://{{ pki_ca_host }}/certsrv/certnew.cer?ReqID=CACert&Renewal=0&Enc=b64;
-    update-ca-trust;
-  become: true
-  register: mycert_download
+        - name: Print cert download location
+          ansible.builtin.debug:
+            msg:
+              - "Your csr, cert, key and p12 files can be found in {{ tempfile['path'] }}"
 
-- name: Run cert validation script to ensure crt matches the key
-  become: true
-  script: validate_cert.sh
-  register: validation
+        - name: End the play if we only want to generate the certs but not upload to a remote host
+          ansible.builtin.meta: end_play
 
-- name: Clean  up the temp folders
+- name: Upload block
+  when: ansible_os_family | lower == 'redhat'
+  block: 
+
+    - name: Upload csr and private key files to host
+      ansible.builtin.copy:
+        src: "{{ item['name'] }}"
+        dest: "{{ item['upload_path'] }}"
+        owner: root
+        group: root
+        mode: 0644
+      become: true
+      register: pki_stat
+      loop:
+        - name: "{{ tempfile['path'] }}/{{ inventory_hostname }}.crt"
+          upload_path: "/etc/pki/tls/certs/{{ inventory_hostname }}.crt"
+        - name: "{{ tempfile['path'] }}/{{ inventory_hostname }}.key"
+          upload_path: "/etc/pki/tls/private/{{ inventory_hostname }}.key"
+        - name: "{{ tempfile['path'] }}/{{ inventory_hostname }}.csr"
+          upload_path: "/etc/pki/tls/misc/{{ inventory_hostname }}.csr"
+        - name: "{{ tempfile['path'] }}/{{ inventory_hostname }}.p12"
+          upload_path: "/etc/pki/tls/certs/{{ inventory_hostname }}.p12"
+
+    - name: Grab the CA certificate and update the ca-trust anchor
+      ansible.builtin.shell: |
+        curl -s -k -u {{ ad_username }}:{{ ad_password }} --ntlm {{ header_content|regex_replace('\n') }} \
+        -o /etc/pki/ca-trust/source/anchors/{{ pki_ca_host }}.pem \
+        https://{{ pki_ca_host }}/certsrv/certnew.cer?ReqID=CACert&Renewal=0&Enc=b64;
+        update-ca-trust;
+      become: true
+      register: mycert_download
+
+    - name: Run cert validation script to ensure crt matches the key
+      become: true
+      script: validate_cert.sh
+      register: validation
+
+- name: Clean up the temp folders
   ansible.builtin.file:
     path: "{{ tempfile['path'] }}"
     state: absent
   
-- name: Generate a PFX file for java related programs just in case someone requires it
-  ansible.builtin.shell: |
-    openssl pkcs12 -export -out /etc/pki/tls/certs/{{ ansible_fqdn }}.p12 \
-    -inkey /etc/pki/tls/private/{{ ansible_fqdn }}.key \
-    -in /etc/pki/tls/certs/{{ ansible_fqdn }}.crt \
-    -certfile /etc/pki/ca-trust/source/anchors/{{ pki_ca_host }}.pem \
-    -password pass:{{ pfx_password | default('ngagyds')}}
-  become: true
-
 ...
