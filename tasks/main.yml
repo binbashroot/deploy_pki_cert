@@ -23,7 +23,7 @@
       run_once: true
 
     - name: Sub localhost block
-      when: config_stat is succeeded
+      when: tempfile is succeeded
       block:
  
         - name: Create a private key for CSR generation
@@ -41,6 +41,7 @@
             common_name: "{{ inventory_hostname }}"
             state_or_province_name: "{{ mystate }}"
             locality_name: "{{ mylocation }}"
+            return_content: true
             subject_alt_name: |
               DNS:{{ inventory_hostname }}
               {%- if san_names is defined -%},
@@ -48,14 +49,15 @@
               {%- if not loop.last -%},{% endif -%}
               {% endfor -%}
               {% endif %}
-          register: config_stat
+          register: __csr_status
 
         - name: Set a shortened string variable for future task
           ansible.builtin.set_fact:
-            pki_request_data: "{{ data1_string }}\
-                              {{ csr_content['content'] | b64decode |
-                                 regex_replace('\n') | regex_replace('([+])', '%2B') |
-                                 regex_replace(' ', '+') }}{{ data2_string }}"
+            pki_request_data: "{{ data1_string }}{{ __csr_status['csr'] |
+                                  regex_replace('\n') | 
+                                  regex_replace('([+])', '%2B') |
+                                  regex_replace(' ', '+') }}{{ data2_string }}"
+
       rescue:
 
         - name: Clean up the temp folders
@@ -76,17 +78,17 @@
       changed_when: false
       failed_when: mycert_request['stdout_lines'] | length == 0
       register: mycert_request
-      when: csr_content is succeeded
+      when: __csr_status is succeeded
 
     - name: Download the certificate from the PKI server
-      ansible.builtin.shell: |
-        curl -k -u {{ ad_username }}:{{ ad_password }} \
-        --ntlm {{ header_content | regex_replace('\n') }} \
-        -o "{{ tempfile['path'] }}/{{ inventory_hostname }}.crt"
+      ansible.builtin.shell: >
+        curl -k -u {{ ad_username }}:{{ ad_password }} 
+        --ntlm {{ header_content | regex_replace('\n') }} 
+        -o '{{ tempfile['path'] }}/{{ inventory_hostname }}.crt' 
         {{ pki_ca_url }}/{{ (mycert_request['stdout_lines'][0]).split('"')[1][:-1] }}
       become: true
       register: mycert_download
-      when: csr_content is succeeded
+      when: __csr_status is succeeded
 
     - name: Generate a PKCS#12 file
       community.crypto.openssl_pkcs12:
@@ -115,6 +117,7 @@
       when: 
         - cert_download_only is defined
         - cert_download_only | bool
+        -  __csr_status is succeeded
       block:
 
         - name: Print cert download location
@@ -152,7 +155,7 @@
       ansible.builtin.shell: |
         curl -s -k -u {{ ad_username }}:{{ ad_password }} --ntlm {{ header_content|regex_replace('\n') }} \
         -o /etc/pki/ca-trust/source/anchors/{{ pki_ca_host }}.pem \
-        https://{{ pki_ca_host }}/certsrv/certnew.cer?ReqID=CACert&Renewal=0&Enc=b64;
+        'https://{{ pki_ca_host }}/certsrv/certnew.cer?ReqID=CACert&Renewal=0&Enc=b64';
         update-ca-trust;
       become: true
       register: mycert_download
