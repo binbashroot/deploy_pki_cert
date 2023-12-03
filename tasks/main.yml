@@ -7,11 +7,6 @@
       - ad_username is defined
       - ad_password is defined
 
-- name: Get facts in case the base ones are undefined
-  ansible.builtin.setup:
-    gather_subset: all
-  when: ansible_fqdn is undefined 
-
 - name: Localhost block
   delegate_to: localhost
   block:
