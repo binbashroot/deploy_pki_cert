@@ -29,4 +29,6 @@ header_content: >-
 
 data1_string: 'Mode=newreq&CertRequest='
 
-data2_string: '&CertAttrib=CertificateTemplate:{{ pki_template_type }}&TargetStoreFlags=0&SaveCert=yes&ThumbPrint='
+#data2_string: '&CertAttrib=CertificateTemplate:{{ pki_template_type }}&TargetStoreFlags=0&SaveCert=yes&ThumbPrint='
+data2_string: '&CertAttrib=CertificateTemplate:{{ pki_template_type }}&TargetStoreFlags=0&SaveCert=yes&Enc=b64&ThumbPrint='
+

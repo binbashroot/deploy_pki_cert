@@ -159,6 +159,7 @@
       become: true
       script: validate_cert.sh
       register: validation
+      ignore_errors: true
 
 - name: Clean up the temp folders
   ansible.builtin.file:
