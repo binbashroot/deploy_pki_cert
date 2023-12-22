@@ -29,7 +29,7 @@
           community.crypto.openssl_csr:
             path: "{{ tempfile['path'] }}/{{ inventory_hostname }}.csr"
             privatekey_path: "{{ tempfile['path'] }}/{{ inventory_hostname }}.key"
-            country_name: US
+            country_name: "{{ mycountry }}"
             email_address: "{{ email_address }}"
             organization_name: "{{ myorg }}"
             organizational_unit_name: "{{ myou }}"
