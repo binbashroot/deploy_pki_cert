@@ -1,0 +1,6 @@
+DNS:{{ inventory_hostname }}
+{%- if san_names is defined -%},
+{%- for san in san_names -%}DNS:{{ san }}
+{%- if not loop.last -%},{% endif -%}
+{% endfor -%}
+{% endif %}

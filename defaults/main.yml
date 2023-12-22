@@ -1,23 +1,32 @@
 ---
 # defaults file for deploy_pki_cert
-email_address: bigbob@cms4u2eat.com
-mystate: Florida
-mylocation: Tampa
-myorg: CMS
-myou: CMS4U2EAT
-mycountry: US 
+ad_username: bigbob
+ad_password: "{{ lookup('env', 'BIG_BOB_PASSWORD') }}"
+
+cert_download_only: false
+
+csr_country: US 
+csr_email_address: bigbob@cms4u2eat.com
+csr_location: Tampa
+csr_organization: CMS
+csr_ou: CMS4U2EAT
+csr_state: Florida
 
 pki_ca_host: dc01.cms4u2eat.com
 
-pki_ca_url: 'http://{{ pki_ca_host }}/certsrv'
+pki_ca_host_url: 'https://{{ pki_ca_host }}/certsrv'
 
-pki_ca_req_url: '{{ pki_ca_url }}/certfnsh.asp'
+pki_ca_referer: '{{ pki_ca_host_url }}/certrqxt.asp'
 
-pki_template_type: CMS_Webserver
+pki_ca_req_url: '{{ pki_ca_host_url }}/certfnsh.asp'
 
-pki_ca_referer: '{{ pki_ca_url }}/certrqxt.asp'
+pki_data_template: CMS_Webserver
 
-header_content: >-
+pki_data1_string: 'Mode=newreq&CertRequest='
+
+pki_data2_string: '&CertAttrib=CertificateTemplate:{{ pki_data_template }}&TargetStoreFlags=0&SaveCert=yes&Enc=b64&ThumbPrint='
+
+pki_header_content: >-
   -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
   -H 'Accept-Encoding: gzip, deflate'
   -H 'Accept-Language: en-US,en;q=0.5'
@@ -25,10 +34,5 @@ header_content: >-
   -H 'Host: {{ pki_ca_host }}'
   -H 'User-Agent: Mozilla/5.0 (Windows NT 6.3; WOW64; Trident/7.0; rv:11.0) like Gecko'
   -H 'Content-Type: application/x-www-form-urlencoded'
-  -H 'Referer: https://{{ pki_ca_host }}/certsrv/certrqxt.asp'
-
-data1_string: 'Mode=newreq&CertRequest='
-
-#data2_string: '&CertAttrib=CertificateTemplate:{{ pki_template_type }}&TargetStoreFlags=0&SaveCert=yes&ThumbPrint='
-data2_string: '&CertAttrib=CertificateTemplate:{{ pki_template_type }}&TargetStoreFlags=0&SaveCert=yes&Enc=b64&ThumbPrint='
+  -H 'Referer: {{ pki_ca_host_url }}/certrqxt.asp'
 

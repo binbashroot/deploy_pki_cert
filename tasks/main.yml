@@ -29,29 +29,24 @@
           community.crypto.openssl_csr:
             path: "{{ tempfile['path'] }}/{{ inventory_hostname }}.csr"
             privatekey_path: "{{ tempfile['path'] }}/{{ inventory_hostname }}.key"
-            country_name: US
-            email_address: "{{ email_address }}"
-            organization_name: "{{ myorg }}"
-            organizational_unit_name: "{{ myou }}"
+            country_name: "{{ csr_country }}"
+            email_address: "{{ csr_email_address }}"
+            organization_name: "{{ csr_organization }}"
+            organizational_unit_name: "{{ csr_ou }}"
             common_name: "{{ inventory_hostname }}"
-            state_or_province_name: "{{ mystate }}"
-            locality_name: "{{ mylocation }}"
+            state_or_province_name: "{{ csr_state }}"
+            locality_name: "{{ csr_location }}"
             return_content: true
             subject_alt_name: |
-              DNS:{{ inventory_hostname }}
-              {%- if san_names is defined -%},
-              {%- for san in san_names -%}DNS:{{ san }}
-              {%- if not loop.last -%},{% endif -%}
-              {% endfor -%}
-              {% endif %}
+              {{ lookup('ansible.builtin.template', 'san_names.j2') }}
           register: __csr_status
 
         - name: Set a shortened string variable for future task
           ansible.builtin.set_fact:
-            pki_request_data: "{{ data1_string }}{{ __csr_status['csr'] |
+            pki_request_data: "{{ pki_data1_string }}{{ __csr_status['csr'] |
                                   regex_replace('\n') | 
                                   regex_replace('([+])', '%2B') |
-                                  regex_replace(' ', '+') }}{{ data2_string }}"
+                                  regex_replace(' ', '+') }}{{ pki_data2_string }}"
 
       rescue:
 
@@ -64,11 +59,13 @@
           ansible.builtin.fail:
             msg: "Failed getting certificate"
 
+    # We use curl instead of the uri module because the uri module
+    # doesn't suport ntlm.
     - name: Request the certificate from the PKI Server
       ansible.builtin.shell: |
         set -o pipefail;
         curl -s -k -u "{{ ad_username }}:{{ ad_password }}" \
-        --ntlm {{ header_content | regex_replace('\n') }} {{ pki_ca_req_url }} \
+        --ntlm {{ pki_header_content | regex_replace('\n') }} {{ pki_ca_req_url }} \
         --data-raw "{{ pki_request_data }}" | grep certnew.cer | grep location
       changed_when: false
       failed_when: mycert_request['stdout_lines'] | length == 0
@@ -78,9 +75,9 @@
     - name: Download the certificate from the PKI server
       ansible.builtin.shell: >
         curl -k -u {{ ad_username }}:{{ ad_password }} 
-        --ntlm {{ header_content | regex_replace('\n') }} 
+        --ntlm {{ pki_header_content | regex_replace('\n') }} 
         -o '{{ tempfile['path'] }}/{{ inventory_hostname }}.crt' 
-        {{ pki_ca_url }}/{{ (mycert_request['stdout_lines'][0]).split('"')[1][:-1] }}
+        {{ pki_ca_host_url }}/{{ (mycert_request['stdout_lines'][0]).split('"')[1][:-1] }}
       become: true
       register: mycert_download
       when: __csr_status is succeeded
@@ -148,9 +145,9 @@
 
     - name: Grab the CA certificate and update the ca-trust anchor
       ansible.builtin.shell: |
-        curl -s -k -u {{ ad_username }}:{{ ad_password }} --ntlm {{ header_content|regex_replace('\n') }} \
+        curl -s -k -u {{ ad_username }}:{{ ad_password }} --ntlm {{ pki_header_content|regex_replace('\n') }} \
         -o /etc/pki/ca-trust/source/anchors/{{ pki_ca_host }}.pem \
-        'https://{{ pki_ca_host }}/certsrv/certnew.cer?ReqID=CACert&Renewal=0&Enc=b64';
+        '{{ pki_ca_host_url }}/certnew.cer?ReqID=CACert&Renewal=0&Enc=b64';
         update-ca-trust;
       become: true
       register: mycert_download
