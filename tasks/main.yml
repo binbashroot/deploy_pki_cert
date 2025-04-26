@@ -37,8 +37,7 @@
             state_or_province_name: "{{ csr_state }}"
             locality_name: "{{ csr_location }}"
             return_content: true
-            subject_alt_name: |
-              {{ lookup('ansible.builtin.template', 'san_names.j2') }}
+            subject_alt_name: "{{ lookup('ansible.builtin.template', 'san_names.j2') }}"
           register: __csr_status
 
         - name: Set a shortened string variable for future task
